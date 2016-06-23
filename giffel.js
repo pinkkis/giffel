@@ -8,97 +8,77 @@
     5. Cycler repeatedly displays images from its queue
 */
 
-var INTERVAL_SECONDS = 8;
-var ANIMATION_DURATION = 3;
+class Giffel {
+    constructor(imagesUrl, interval, duration) {
+        if (!imagesUrl || typeof imagesUrl !== "string") { throw new Error(`No image url provided.`); }
 
-function loadImages(urls, callback) {
-    if (urls.length === 0) {
-        console.log("All images loaded!");
-        return;
+        this.INTERVAL_SECONDS = interval || 8;
+        this.ANIMATION_DURATION = duration || 3;
+        this.queue = [];
+        this.interval = null;
+
+        fetch(imagesUrl)
+            .then(response => response.json()
+                                      .then(body => this.extractGifUrls(body.data.children)))
+            .then(urls => this.loadImages(urls, this.cycleImages()))
+            .catch(err => document.body.innerHTML = "Couldn't get list of images to show, sorry! " + err.message);
     }
 
-    function loadImage(url, callback) {
-        var img = document.createElement("img");
-        img.onload = function(e) {
-            callback(img);
+    extractGifUrls(res) {
+        return res
+            .map(c => c.data.url)
+            .filter(url => url.match(/gifv?$/))
+            .map(url => url.replace(/gifv?$/, "gif"));
+    }
+
+    showImage(url) {
+        let oldImage = document.querySelector(".current-image");
+        let newImage = document.createElement("div");
+
+        // Wait for new image to animate in, then remove old
+        if (oldImage) {
+            setTimeout(() => oldImage.parentNode.removeChild(oldImage), this.ANIMATION_DURATION * 1000);
         }
-        img.onerror = function(e) {
-            console.error("Error loading image: " + e.message);
-        }
-        console.log("Loading:", url);
-        img.src = url;
+        newImage.innerHTML = `<div class="current-image fullscreen fade-in" style="background-image: url(${url})"></div>`;
+        document.body.appendChild(newImage.firstChild);
     }
 
-    var queue = [].concat(urls);
+    // Starts cycling images and returns a function used to add new images into queue
+    cycleImages() {
+        let currentIndex = -1;
+        let nextImage = () => {
+            currentIndex = (currentIndex + 1) % (this.queue.length || 1);
+            this.showImage(this.queue[currentIndex].src);
+        };
 
-    loadImage(queue.shift(), function(img) {
-        callback(img);
-        loadImages(queue, callback);
-    });
-}
+        return img => {
+            this.queue.push(img);
 
-// Starts cycling images and returns a function used to add new images into queue
-function cycleImages() {
-    var currentIndex = -1;
-    var queue = [];
-    var interval = null;
-
-    function nextImage() {
-        currentIndex = (currentIndex + 1) % (queue.length || 1);
-        showImage(queue[currentIndex].src);
-    }
-
-    return function addToQueue(img) {
-        console.log("Adding image to cycler queue:", img.src);
-        queue.push(img);
-
-        if (!interval) {
-            nextImage();
-            interval = setInterval(nextImage, INTERVAL_SECONDS * 1000);
-        }
-    };
-}
-
-function showImage(url) {
-    // Wait for new image to animate in, then remove old
-    var oldImage = document.querySelector(".current-image");
-    if (oldImage) {
-        setTimeout(function() {
-            oldImage.parentNode.removeChild(oldImage);
-        }, ANIMATION_DURATION * 1000);
-    }
-    var newImage = document.createElement("div");
-    newImage.innerHTML = '<div class="current-image fullscreen fade-in" ' +
-        'style="background-image: url(' + url + ')"></div>';
-    document.body.appendChild(newImage.firstChild);
-}
-
-function extractGifUrls(res) {
-    function suffix(str) {
-        return str.substring(str.lastIndexOf("."));
-    }
-
-    return res.map(function(c) {
-            return c.data.url;
-        })
-        .filter(function(url) {
-            return url && suffix(url) === ".gif" || suffix(url) === ".gifv";
-        }).map(function(url) {
-            if (suffix(url) === ".gifv") {
-                return url.substring(0, url.lastIndexOf(".gifv")) + ".gif";
+            if (!this.interval) {
+                nextImage();
+                this.interval = setInterval(nextImage, this.INTERVAL_SECONDS * 1000);
             }
-            return url;
+        };
+    }
+
+    loadImages(urls, callback) {
+        if (!urls.length) {
+            console.log(`All ${this.queue.length} images loaded!`);
+            return;
+        }
+
+        let loadImage = (url, callback) => {
+            let img = document.createElement("img");
+            img.onload = () => callback(img);
+            img.onerror = e => console.error(`Error loading image: ${e.message}`);
+            img.src = url;
+        };
+
+        loadImage(urls.shift(), img => {
+            callback(img);
+            this.loadImages(urls, callback);
         });
+    }
 }
 
-axios.get("https://www.reddit.com/r/perfectloops/.json")
-    .then(function(response) {
-        return extractGifUrls(response.data.data.children)
-    })
-    .then(function start(urls) {
-        var addImageCallback = cycleImages();
-        loadImages(urls, addImageCallback);
-    })
-    .catch(function(err) {
-        document.body.innerHTML = "Couldn't get list of images to show, sorry! " + err.message;
-    });
+let giffel = new Giffel("https://www.reddit.com/r/perfectloops/.json");
